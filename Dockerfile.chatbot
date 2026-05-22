@@ -1,0 +1,17 @@
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    DETECTOR_URL=http://detector:8000 \
+    GROQ_API_KEY=""
+
+WORKDIR /app
+
+COPY requirements-chatbot.txt .
+RUN pip install --no-cache-dir -r requirements-chatbot.txt
+
+COPY chatbot_app/ .
+
+EXPOSE 8001
+
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001"]

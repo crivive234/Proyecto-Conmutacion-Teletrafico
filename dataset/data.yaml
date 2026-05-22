@@ -1,0 +1,12 @@
+names:
+- docker
+- podman
+- terraform
+- qemu
+- ansible
+- jenkins
+- kubernetes
+nc: 7
+path: /home/crivive/Documentos/proyecto-final/dataset
+train: images/train
+val: images/val

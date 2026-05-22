@@ -1,0 +1,88 @@
+services:
+
+  # ── Contenedor YOLO — detección de logos ─────────────────────────────────────
+  detector:
+    build:
+      context:    .
+      dockerfile: Dockerfile.detector
+    container_name: detector
+    restart: unless-stopped
+    devices:
+      - /dev/video0:/dev/video0
+    volumes:
+      - ./models:/app/models
+      - ./dataset:/app/dataset
+      - ./runs:/app/runs
+    environment:
+      - MODEL_PATH=models/best.pt
+      - CONFIDENCE_THRESHOLD=0.50
+      - VIDEO_SOURCE=0
+      - MAX_FPS=15
+      - DEVICE=cpu
+    ports:
+      - "8000:8000"
+    networks:
+      - devops-net
+
+  # ── Contenedor Chatbot ────────────────────────────────────────────────────────
+  chatbot:
+    build:
+      context:    .
+      dockerfile: Dockerfile.chatbot
+    container_name: chatbot
+    restart: unless-stopped
+    environment:
+      - DETECTOR_URL=http://detector:8000
+      - GROQ_API_KEY=${GROQ_API_KEY}
+    ports:
+      - "8001:8001"
+    networks:
+      - devops-net
+    depends_on:
+      - detector
+
+  # ── Contenedor Parrot OS — auditoría interna ──────────────────────────────────
+  parrot:
+    build:
+      context:    .
+      dockerfile: Dockerfile.parrot
+    container_name: parrot-audit
+    profiles: ["audit"]
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    environment:
+      - AUDIT_TARGETS=detector chatbot
+      - AUDIT_SUBNET=172.20.0.0/24
+    volumes:
+      - ./reports:/reports
+    networks:
+      - devops-net
+    depends_on:
+      - detector
+      - chatbot
+
+  # ── Perfil de entrenamiento ────────────────────────────────────────────────────
+  trainer:
+    build:
+      context:    .
+      dockerfile: Dockerfile.detector
+    container_name: trainer
+    profiles: ["train"]
+    volumes:
+      - ./models:/app/models
+      - ./dataset:/app/dataset
+      - ./runs:/app/runs
+      - ./logos:/app/logos
+      - ./scripts:/app/scripts
+    command: python scripts/train.py
+    networks:
+      - devops-net
+
+# ── Red interna con subred fija ───────────────────────────────────────────────
+networks:
+  devops-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24

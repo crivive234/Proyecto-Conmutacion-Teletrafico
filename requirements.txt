@@ -1,0 +1,14 @@
+# requirements.txt
+# Contenedor detector — YOLO + FastAPI
+# Uso: pip install -r requirements.txt (dentro del Dockerfile)
+
+# Servidor web
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+
+# Detección
+ultralytics==8.2.0
+opencv-python-headless==4.9.0.80
+
+# Utilidades
+numpy==1.26.4

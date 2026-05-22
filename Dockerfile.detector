@@ -1,0 +1,40 @@
+# ── Imagen base ───────────────────────────────────────────────────────────────
+# python:3.11-slim es ligera y suficiente para inferencia en CPU
+FROM python:3.11-slim
+
+# ── Variables de entorno ───────────────────────────────────────────────────────
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    MODEL_PATH=models/best.pt \
+    CONFIDENCE_THRESHOLD=0.50 \
+    VIDEO_SOURCE=0 \
+    MAX_FPS=15 \
+    DEVICE=cpu
+
+# ── Dependencias del sistema ───────────────────────────────────────────────────
+# libGL es necesaria para OpenCV aunque usemos la versión headless
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libgl1 \
+        libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── Directorio de trabajo ──────────────────────────────────────────────────────
+WORKDIR /app
+
+# ── Dependencias Python ────────────────────────────────────────────────────────
+# Se copian primero para aprovechar la caché de Docker:
+# si requirements.txt no cambia, esta capa no se reconstruye.
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# ── Código fuente ──────────────────────────────────────────────────────────────
+COPY app/ .
+
+# ── Carpetas de datos (los volúmenes las montan en runtime) ───────────────────
+RUN mkdir -p models dataset runs
+
+# ── Puerto expuesto ────────────────────────────────────────────────────────────
+EXPOSE 8000
+
+# ── Comando de arranque ────────────────────────────────────────────────────────
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

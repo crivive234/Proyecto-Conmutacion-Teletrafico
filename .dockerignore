@@ -1,0 +1,35 @@
+# Control de versiones
+.git/
+.gitignore
+
+# Entorno virtual del host (no va dentro del contenedor)
+.venv/
+
+# Variables de entorno
+.env
+
+# Dataset (se monta como volumen, no se copia en la imagen)
+dataset/
+backgrounds/
+logos/
+
+# Resultados de entrenamiento
+runs/
+
+# Reportes
+reports/
+
+# Scripts de fase 4 (no los necesitan los contenedores)
+scripts/phase4/
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Documentación
+README.md
+*.md
+
+# Sistema
+.DS_Store
+Thumbs.db

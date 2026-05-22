@@ -1,0 +1,36 @@
+# Entorno virtual
+.venv/
+
+# Variables de entorno (nunca subir la API key)
+.env
+
+# Modelo entrenado (muy pesado ~6MB, se genera localmente)
+models/best.pt
+
+# Dataset generado (se regenera con generate_dataset.py)
+dataset/images/
+dataset/labels/
+
+# Resultados del entrenamiento (pueden pesar GBs)
+runs/
+
+# Reportes de auditoría
+reports/
+
+# Logos (pueden tener derechos de autor)
+logos/
+
+# Fondos opcionales
+backgrounds/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Docker
+*.log
+
+# Sistema
+.DS_Store
+Thumbs.db
