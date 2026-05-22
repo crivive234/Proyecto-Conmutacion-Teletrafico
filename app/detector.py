@@ -93,12 +93,18 @@ class LogoDetector:
             print("El stream funcionará sin detección hasta que entrenes el modelo.")
             return
         try:
-            # Fix para PyTorch 2.6: permite cargar modelos ultralytics
+            # Fix para PyTorch 2.6: forzar weights_only=False
+            # El modelo viene de ultralytics (fuente confiable)
             import torch
-            from ultralytics.nn.tasks import DetectionModel
-            torch.serialization.add_safe_globals([DetectionModel])
+            original_load = torch.load
 
+            def patched_load(*args, **kwargs):
+                kwargs["weights_only"] = False
+                return original_load(*args, **kwargs)
+
+            torch.load     = patched_load
             self._model    = YOLO(str(MODEL_PATH))
+            torch.load     = original_load   # restaurar
             self._model_ok = True
             print(f"Modelo cargado: {MODEL_PATH}")
         except Exception as e:
