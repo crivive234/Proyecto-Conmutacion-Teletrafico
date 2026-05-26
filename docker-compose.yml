@@ -34,8 +34,11 @@ services:
     environment:
       - DETECTOR_URL=http://detector:8000
       - GROQ_API_KEY=${GROQ_API_KEY}
+      - REPORTS_DIR=/reports
     ports:
       - "8001:8001"
+    volumes:
+      - ./reports:/reports
     networks:
       - devops-net
     depends_on:

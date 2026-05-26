@@ -5,7 +5,9 @@ y genera respuestas contextuales usando la API de Groq (gratis).
 """
 
 import os
+import glob
 import httpx
+from pathlib import Path
 from groq import Groq
 
 # ── Configuración ──────────────────────────────────────────────────────────────
@@ -14,6 +16,8 @@ DETECTOR_URL = os.getenv("DETECTOR_URL", "http://detector:8000")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 MAX_TOKENS   = 512
 MODEL        = "llama-3.3-70b-versatile"
+
+REPORTS_DIR  = os.getenv("REPORTS_DIR", "/reports")
 
 # Historial de conversación por sesión (en memoria)
 _history: list[dict] = []
@@ -65,6 +69,8 @@ Agones, SuperTuxKart, Roboflow, Minikube, Groq.
 
 REGLAS DE COMPORTAMIENTO:
 - Si hay logos detectados en pantalla, explica QUÉ HACE ESA HERRAMIENTA EN ESTE PROYECTO.
+- Si hay contexto de auditoría disponible, úsalo para responder preguntas sobre la red,
+  puertos, servicios o conectividad de los contenedores.
 - No expliques la herramienta de forma genérica; conéctala siempre con la arquitectura.
 - Si el usuario pregunta algo general sobre el proyecto, explica la arquitectura completa.
 - Responde siempre en español.
@@ -74,8 +80,62 @@ REGLAS DE COMPORTAMIENTO:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# OBTENER DETECCIONES ACTUALES
+# LEER CONTEXTO DE AUDITORÍA PARROT OS
 # ─────────────────────────────────────────────────────────────────────────────
+
+def _latest_file(pattern: str) -> str | None:
+    """Devuelve el archivo más reciente que coincide con el patrón glob."""
+    files = sorted(glob.glob(pattern))
+    return files[-1] if files else None
+
+
+def get_audit_context() -> str:
+    """
+    Lee los reportes más recientes generados por Parrot OS + nmap.
+    Devuelve un resumen en texto plano para inyectar como contexto.
+    Si no hay reportes, devuelve cadena vacía.
+    """
+    parts = []
+
+    # HTTP check — el más útil para preguntas de conectividad
+    http_file = _latest_file(f"{REPORTS_DIR}/http_check_*.txt")
+    if http_file:
+        try:
+            content = Path(http_file).read_text(encoding="utf-8")
+            parts.append(f"=== Verificación HTTP (última auditoría) ===\n{content.strip()}")
+        except Exception:
+            pass
+
+    # Escaneo de puertos (texto legible)
+    scan_file = _latest_file(f"{REPORTS_DIR}/scan_*.txt")
+    if scan_file:
+        try:
+            content = Path(scan_file).read_text(encoding="utf-8")
+            # Limitar a 1500 chars para no saturar el contexto
+            parts.append(f"=== Escaneo de puertos (nmap) ===\n{content.strip()[:1500]}")
+        except Exception:
+            pass
+
+    # Descubrimiento de hosts
+    disc_file = _latest_file(f"{REPORTS_DIR}/discovery_*.txt")
+    if disc_file:
+        try:
+            content = Path(disc_file).read_text(encoding="utf-8")
+            parts.append(f"=== Hosts descubiertos en la red ===\n{content.strip()[:800]}")
+        except Exception:
+            pass
+
+    if not parts:
+        return ""
+
+    return (
+        "\n\n[CONTEXTO DE AUDITORÍA — Parrot OS + nmap]\n"
+        + "\n\n".join(parts)
+        + "\n[FIN DE AUDITORÍA]"
+    )
+
+
+
 
 async def get_current_logos() -> list[str]:
     """
@@ -96,16 +156,16 @@ async def get_current_logos() -> list[str]:
 # CONSTRUIR MENSAJE CON CONTEXTO
 # ─────────────────────────────────────────────────────────────────────────────
 
-def build_user_message(user_text: str, logos: list[str]) -> str:
+def build_user_message(user_text: str, logos: list[str], audit: str) -> str:
     """
-    Añade el contexto de logos detectados al mensaje del usuario.
+    Añade el contexto de logos detectados y auditoría al mensaje del usuario.
     """
     if logos:
-        context = f"[Logos detectados en pantalla ahora: {', '.join(logos)}]\n"
+        context = f"[Logos en pantalla ahora: {', '.join(logos)}]\n"
     else:
         context = "[Sin logos detectados en pantalla ahora mismo]\n"
 
-    return context + user_text
+    return context + audit + "\n" + user_text
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -116,23 +176,33 @@ async def ask_claude(user_text: str) -> dict:
     """
     Flujo completo:
     1. Obtiene logos detectados actualmente.
-    2. Construye el mensaje con contexto del proyecto.
-    3. Llama a Groq API manteniendo el historial.
-    4. Devuelve respuesta + logos usados como contexto.
+    2. Lee contexto de auditoría de Parrot OS.
+    3. Construye el mensaje con ambos contextos.
+    4. Llama a Groq API manteniendo el historial.
+    5. Devuelve respuesta + logos usados como contexto.
 
     Nota: la función se llama ask_claude para mantener
     el contrato con main.py — internamente usa Groq.
     """
     global _history
 
+    # Paso 1 — logos actuales
     logos = await get_current_logos()
-    enriched_message = build_user_message(user_text, logos)
 
+    # Paso 2 — contexto de auditoría (Parrot OS)
+    audit = get_audit_context()
+
+    # Paso 3 — mensaje enriquecido
+    enriched_message = build_user_message(user_text, logos, audit)
+
+    # Paso 3 — agregar al historial
     _history.append({"role": "user", "content": enriched_message})
 
+    # Mantener historial acotado
     if len(_history) > MAX_HISTORY * 2:
         _history = _history[-(MAX_HISTORY * 2):]
 
+    # Paso 4 — verificar API key
     if not GROQ_API_KEY:
         _history.append({
             "role": "assistant",
@@ -144,9 +214,11 @@ async def ask_claude(user_text: str) -> dict:
             "error":         "missing_api_key",
         }
 
+    # Paso 5 — llamar a Groq
     try:
         client = Groq(api_key=GROQ_API_KEY)
 
+        # Groq sigue el formato OpenAI: system va como primer mensaje
         messages = [{"role": "system", "content": SYSTEM_PROMPT}] + _history
 
         completion = client.chat.completions.create(
@@ -156,6 +228,8 @@ async def ask_claude(user_text: str) -> dict:
         )
 
         reply = completion.choices[0].message.content
+
+        # Guardar respuesta en el historial
         _history.append({"role": "assistant", "content": reply})
 
         return {
@@ -167,6 +241,7 @@ async def ask_claude(user_text: str) -> dict:
     except Exception as e:
         error_msg = str(e)
 
+        # Mensaje amigable para errores comunes
         if "401" in error_msg or "invalid_api_key" in error_msg:
             msg = "Error de autenticación con Groq. Verifica tu GROQ_API_KEY."
             err = "auth_error"

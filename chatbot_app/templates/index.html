@@ -296,21 +296,29 @@
     .btn-send:hover   { opacity: 0.85; }
     .btn-send:disabled { opacity: 0.4; cursor: not-allowed; }
 
-    /* ── Botón de voz ──────────────────────────────────────────────────────── */
-    .btn-speak {
+    /* ── Botón de micrófono ────────────────────────────────────────────────── */
+    .btn-mic {
       background: none;
       border: 1px solid var(--border);
       color: var(--muted);
-      border-radius: 6px;
-      padding: 3px 8px;
-      font-size: 13px;
+      border-radius: 8px;
+      padding: 0 12px;
+      font-size: 18px;
       cursor: pointer;
-      margin-left: 6px;
-      transition: border-color 0.2s, color 0.2s;
-      vertical-align: middle;
+      align-self: stretch;
+      transition: border-color 0.2s, color 0.2s, background 0.2s;
     }
-    .btn-speak:hover  { border-color: var(--accent2); color: var(--accent2); }
-    .btn-speak.playing { border-color: var(--accent2); color: var(--accent2); }
+    .btn-mic:hover    { border-color: var(--accent2); color: var(--accent2); }
+    .btn-mic.recording {
+      border-color: var(--danger);
+      color: var(--danger);
+      background: rgba(248,113,113,0.08);
+      animation: pulse-mic 1s infinite;
+    }
+    @keyframes pulse-mic {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.5; }
+    }
   </style>
 </head>
 <body>
@@ -364,9 +372,10 @@
     <div class="chat-input">
       <textarea
         id="userInput"
-        placeholder="Pregunta sobre los logos detectados..."
+        placeholder="Pregunta sobre los logos detectados o escribe... (🎤 para hablar)"
         rows="2"
       ></textarea>
+      <button class="btn-mic"  id="btnMic"  title="Hablar">🎤</button>
       <button class="btn-send" id="btnSend">➤</button>
     </div>
 
@@ -408,27 +417,6 @@
   setInterval(fetchDetections, 1500);
   fetchDetections();
 
-  // ── Text-to-Speech ───────────────────────────────────────────────────────
-  async function speakText(text, btn) {
-    try {
-      if (btn) { btn.textContent = '⏸'; btn.classList.add('playing'); }
-      const res  = await fetch('/speak', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ text }),
-      });
-      if (!res.ok) throw new Error('TTS error');
-      const blob  = await res.blob();
-      const audio = new Audio(URL.createObjectURL(blob));
-      audio.onended = () => {
-        if (btn) { btn.textContent = '🔊'; btn.classList.remove('playing'); }
-      };
-      audio.play();
-    } catch {
-      if (btn) { btn.textContent = '🔊'; btn.classList.remove('playing'); }
-    }
-  }
-
   // ── Chat ─────────────────────────────────────────────────────────────────
   const messages  = document.getElementById('messages');
   const userInput = document.getElementById('userInput');
@@ -444,16 +432,6 @@
         escapeHtml(text);
     } else {
       div.textContent = text;
-    }
-
-    // Botón de voz solo en mensajes del bot
-    if (role === 'bot') {
-      const btn = document.createElement('button');
-      btn.className   = 'btn-speak';
-      btn.textContent = '🔊';
-      btn.title       = 'Escuchar respuesta';
-      btn.addEventListener('click', () => speakText(text, btn));
-      div.appendChild(btn);
     }
 
     messages.appendChild(div);
@@ -504,10 +482,7 @@
         err.textContent = data.response;
         messages.appendChild(err);
       } else {
-        const msgDiv = addMsg('bot', data.response, data.context_logos);
-        // Reproducir voz automáticamente
-        const speakBtn = msgDiv.querySelector('.btn-speak');
-        speakText(data.response, speakBtn);
+        addMsg('bot', data.response, data.context_logos);
       }
     } catch (e) {
       typing.remove();
@@ -522,7 +497,64 @@
     userInput.focus();
   }
 
-  // Enviar con Enter (Shift+Enter = nueva línea)
+  // ── Micrófono — Web Speech API ───────────────────────────────────────────
+  const btnMic = document.getElementById('btnMic');
+  let recognition = null;
+  let isRecording = false;
+
+  if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    recognition = new SR();
+    recognition.lang       = 'es-ES';
+    recognition.continuous = false;
+    recognition.interimResults = true;
+
+    recognition.onstart = () => {
+      isRecording = true;
+      btnMic.classList.add('recording');
+      btnMic.title = 'Escuchando... (clic para detener)';
+    };
+
+    recognition.onresult = (e) => {
+      const transcript = Array.from(e.results)
+        .map(r => r[0].transcript)
+        .join('');
+      userInput.value = transcript;
+      // Si el resultado es final, enviar automáticamente
+      if (e.results[e.results.length - 1].isFinal) {
+        recognition.stop();
+        setTimeout(() => sendMessage(), 300);
+      }
+    };
+
+    recognition.onerror = () => {
+      isRecording = false;
+      btnMic.classList.remove('recording');
+      btnMic.title = 'Hablar';
+    };
+
+    recognition.onend = () => {
+      isRecording = false;
+      btnMic.classList.remove('recording');
+      btnMic.title = 'Hablar';
+    };
+
+    btnMic.addEventListener('click', () => {
+      if (isRecording) {
+        recognition.stop();
+      } else {
+        userInput.value = '';
+        recognition.start();
+      }
+    });
+  } else {
+    // Navegador sin soporte
+    btnMic.title   = 'Tu navegador no soporta reconocimiento de voz';
+    btnMic.style.opacity = '0.3';
+    btnMic.style.cursor  = 'not-allowed';
+  }
+
+
   userInput.addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
