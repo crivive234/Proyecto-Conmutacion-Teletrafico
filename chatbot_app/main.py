@@ -3,18 +3,22 @@ main.py
 Servidor FastAPI del contenedor chatbot.
 
 Endpoints:
-    GET  /        → Web UI completa (video + detecciones + chat)
-    POST /chat    → recibe mensaje, devuelve respuesta de Claude
-    POST /clear   → limpia el historial de conversación
-    GET  /health  → estado del servicio
+    GET  /              → Web UI completa (video + detecciones + chat)
+    POST /chat          → recibe mensaje, devuelve respuesta de Groq
+    POST /clear         → limpia el historial de conversación
+    GET  /health        → estado del servicio
+    GET  /detections-proxy → proxy para evitar CORS con el detector
+    POST /speak         → convierte texto a audio MP3 (gTTS) para reproducir en el navegador
 """
 
 import os
 from contextlib import asynccontextmanager
+from io import BytesIO
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
+from gtts import gTTS
 from pydantic import BaseModel
 
 from chatbot import ask_claude, clear_history, get_history
@@ -40,7 +44,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title       = "DevOps Chatbot",
     description = "Chatbot contextual para el visualizador de logos DevOps",
-    version     = "1.0.0",
+    version     = "1.1.0",
     lifespan    = lifespan,
 )
 
@@ -54,7 +58,17 @@ class ChatRequest(BaseModel):
 
     model_config = {
         "json_schema_extra": {
-            "example": {"message": "¿Qué es Docker y para qué sirve?"}
+            "example": {"message": "¿Qué es Docker y para qué sirve en el proyecto?"}
+        }
+    }
+
+
+class SpeakRequest(BaseModel):
+    text: str
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {"text": "Docker conteneriza los servicios principales del proyecto."}
         }
     }
 
@@ -67,7 +81,6 @@ class ChatRequest(BaseModel):
     "/",
     response_class = HTMLResponse,
     summary        = "Interfaz web principal",
-    description    = "Sirve la Web UI con video en vivo, panel de detecciones y chat.",
 )
 async def index(request: Request):
     return templates.TemplateResponse(
@@ -82,25 +95,9 @@ async def index(request: Request):
 @app.post(
     "/chat",
     summary     = "Enviar mensaje al chatbot",
-    description = "Recibe el mensaje del usuario, consulta los logos detectados "
-                  "actualmente y devuelve la respuesta de Claude con ese contexto.",
+    description = "Recibe el mensaje del usuario y devuelve la respuesta con contexto del proyecto.",
 )
 async def chat(body: ChatRequest):
-    """
-    Ejemplo de request:
-    ```json
-    { "message": "¿Qué diferencia hay entre Docker y Podman?" }
-    ```
-
-    Ejemplo de response:
-    ```json
-    {
-        "response": "Docker y Podman son ambos motores de contenedores...",
-        "context_logos": ["docker", "podman"],
-        "error": null
-    }
-    ```
-    """
     if not body.message.strip():
         return JSONResponse(
             status_code = 400,
@@ -109,6 +106,45 @@ async def chat(body: ChatRequest):
 
     result = await ask_claude(body.message.strip())
     return JSONResponse(content=result)
+
+
+@app.post(
+    "/speak",
+    summary     = "Texto a voz",
+    description = "Convierte el texto en audio MP3 usando gTTS. "
+                  "El frontend lo recibe y lo reproduce directamente en el navegador, "
+                  "sin necesidad de acceso a dispositivos de audio en el contenedor.",
+)
+async def speak(body: SpeakRequest):
+    """
+    Ejemplo de uso desde el frontend:
+    ```js
+    const res = await fetch('/speak', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ text: responseText })
+    });
+    const blob = await res.blob();
+    new Audio(URL.createObjectURL(blob)).play();
+    ```
+    """
+    if not body.text.strip():
+        return JSONResponse(
+            status_code = 400,
+            content     = {"error": "El texto no puede estar vacío."},
+        )
+
+    try:
+        tts = gTTS(text=body.text.strip(), lang="es", slow=False)
+        buf = BytesIO()
+        tts.write_to_fp(buf)
+        buf.seek(0)
+        return StreamingResponse(buf, media_type="audio/mpeg")
+    except Exception as e:
+        return JSONResponse(
+            status_code = 500,
+            content     = {"error": f"Error al generar audio: {str(e)}"},
+        )
 
 
 @app.post(
@@ -124,7 +160,6 @@ async def clear():
 @app.get(
     "/health",
     summary     = "Estado del servicio",
-    description = "Verifica que el chatbot esté activo.",
 )
 async def health():
     return JSONResponse(content={

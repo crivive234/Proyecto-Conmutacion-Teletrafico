@@ -295,6 +295,22 @@
     }
     .btn-send:hover   { opacity: 0.85; }
     .btn-send:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    /* ── Botón de voz ──────────────────────────────────────────────────────── */
+    .btn-speak {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      border-radius: 6px;
+      padding: 3px 8px;
+      font-size: 13px;
+      cursor: pointer;
+      margin-left: 6px;
+      transition: border-color 0.2s, color 0.2s;
+      vertical-align: middle;
+    }
+    .btn-speak:hover  { border-color: var(--accent2); color: var(--accent2); }
+    .btn-speak.playing { border-color: var(--accent2); color: var(--accent2); }
   </style>
 </head>
 <body>
@@ -392,6 +408,27 @@
   setInterval(fetchDetections, 1500);
   fetchDetections();
 
+  // ── Text-to-Speech ───────────────────────────────────────────────────────
+  async function speakText(text, btn) {
+    try {
+      if (btn) { btn.textContent = '⏸'; btn.classList.add('playing'); }
+      const res  = await fetch('/speak', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ text }),
+      });
+      if (!res.ok) throw new Error('TTS error');
+      const blob  = await res.blob();
+      const audio = new Audio(URL.createObjectURL(blob));
+      audio.onended = () => {
+        if (btn) { btn.textContent = '🔊'; btn.classList.remove('playing'); }
+      };
+      audio.play();
+    } catch {
+      if (btn) { btn.textContent = '🔊'; btn.classList.remove('playing'); }
+    }
+  }
+
   // ── Chat ─────────────────────────────────────────────────────────────────
   const messages  = document.getElementById('messages');
   const userInput = document.getElementById('userInput');
@@ -407,6 +444,16 @@
         escapeHtml(text);
     } else {
       div.textContent = text;
+    }
+
+    // Botón de voz solo en mensajes del bot
+    if (role === 'bot') {
+      const btn = document.createElement('button');
+      btn.className   = 'btn-speak';
+      btn.textContent = '🔊';
+      btn.title       = 'Escuchar respuesta';
+      btn.addEventListener('click', () => speakText(text, btn));
+      div.appendChild(btn);
     }
 
     messages.appendChild(div);
@@ -457,7 +504,10 @@
         err.textContent = data.response;
         messages.appendChild(err);
       } else {
-        addMsg('bot', data.response, data.context_logos);
+        const msgDiv = addMsg('bot', data.response, data.context_logos);
+        // Reproducir voz automáticamente
+        const speakBtn = msgDiv.querySelector('.btn-speak');
+        speakText(data.response, speakBtn);
       }
     } catch (e) {
       typing.remove();
