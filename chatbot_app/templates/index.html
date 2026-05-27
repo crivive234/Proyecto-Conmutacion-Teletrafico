@@ -319,6 +319,51 @@
       0%, 100% { opacity: 1; }
       50%       { opacity: 0.5; }
     }
+
+    /* ── Estado del micrófono ──────────────────────────────────────────────── */
+    .mic-status {
+      font-size: 11px;
+      color: var(--muted);
+      padding: 0 12px 4px;
+      height: 16px;
+      flex-shrink: 0;
+      transition: color 0.2s;
+    }
+    .mic-status.listening { color: var(--danger); }
+    .mic-status.processing { color: var(--accent); }
+
+    /* ── Botón speaker por mensaje ────────────────────────────────────────── */
+    .msg-speak {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      margin-top: 6px;
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      border-radius: 6px;
+      padding: 2px 8px;
+      font-size: 11px;
+      cursor: pointer;
+      transition: border-color 0.2s, color 0.2s;
+    }
+    .msg-speak:hover   { border-color: var(--accent2); color: var(--accent2); }
+    .msg-speak.playing { border-color: var(--accent2); color: var(--accent2);
+                         animation: pulse-mic 1s infinite; }
+
+    /* ── Botón silenciar TTS ──────────────────────────────────────────────── */
+    .btn-mute {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      border-radius: 8px;
+      padding: 3px 10px;
+      font-size: 11px;
+      cursor: pointer;
+      transition: border-color 0.2s, color 0.2s;
+    }
+    .btn-mute:hover       { border-color: var(--accent); color: var(--accent); }
+    .btn-mute.muted       { border-color: var(--danger); color: var(--danger); }
   </style>
 </head>
 <body>
@@ -360,7 +405,10 @@
 
     <div class="chat-header">
       <span>Asistente DevOps</span>
-      <button class="btn-clear" id="btnClear">Limpiar chat</button>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <button class="btn-mute" id="btnMute" title="Silenciar voz del asistente">🔊 Voz</button>
+        <button class="btn-clear" id="btnClear">Limpiar chat</button>
+      </div>
     </div>
 
     <div class="messages" id="messages">
@@ -369,6 +417,7 @@
       </div>
     </div>
 
+    <div class="mic-status" id="micStatus"></div>
     <div class="chat-input">
       <textarea
         id="userInput"
@@ -417,6 +466,55 @@
   setInterval(fetchDetections, 1500);
   fetchDetections();
 
+  // ── Texto a voz (TTS) ────────────────────────────────────────────────────
+  const btnMute   = document.getElementById('btnMute');
+  let ttsEnabled  = true;       // activo por defecto
+  let currentAudio = null;      // instancia Audio en curso
+
+  btnMute.addEventListener('click', () => {
+    ttsEnabled = !ttsEnabled;
+    btnMute.textContent = ttsEnabled ? '🔊 Voz' : '🔇 Voz';
+    btnMute.classList.toggle('muted', !ttsEnabled);
+    btnMute.title = ttsEnabled
+      ? 'Silenciar voz del asistente'
+      : 'Activar voz del asistente';
+    // Detener audio en curso si se silencia
+    if (!ttsEnabled && currentAudio) {
+      currentAudio.pause();
+      currentAudio = null;
+    }
+  });
+
+  async function speakText(text) {
+    if (!ttsEnabled || !text.trim()) return;
+
+    // Detener audio anterior si aún suena
+    if (currentAudio) {
+      currentAudio.pause();
+      currentAudio = null;
+    }
+
+    try {
+      const res = await fetch('/speak', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ text }),
+      });
+      if (!res.ok) return;
+
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      currentAudio = new Audio(url);
+      currentAudio.onended = () => {
+        URL.revokeObjectURL(url);
+        currentAudio = null;
+      };
+      currentAudio.play();
+    } catch {
+      // Fallo silencioso — el chat sigue funcionando sin voz
+    }
+  }
+
   // ── Chat ─────────────────────────────────────────────────────────────────
   const messages  = document.getElementById('messages');
   const userInput = document.getElementById('userInput');
@@ -432,6 +530,59 @@
         escapeHtml(text);
     } else {
       div.textContent = text;
+    }
+
+    // Botón 🔊 individual en cada mensaje del bot
+    if (role === 'bot') {
+      const btnSpeak = document.createElement('button');
+      btnSpeak.className   = 'msg-speak';
+      btnSpeak.title       = 'Escuchar este mensaje';
+      btnSpeak.innerHTML   = '🔊 Escuchar';
+
+      let speakAudio = null;
+
+      btnSpeak.addEventListener('click', async () => {
+        // Si ya está sonando este mensaje, lo detiene
+        if (speakAudio && !speakAudio.paused) {
+          speakAudio.pause();
+          speakAudio = null;
+          btnSpeak.classList.remove('playing');
+          btnSpeak.innerHTML = '🔊 Escuchar';
+          return;
+        }
+
+        // Detener cualquier audio global en curso
+        if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+
+        btnSpeak.classList.add('playing');
+        btnSpeak.innerHTML = '⏹ Detener';
+
+        try {
+          const res  = await fetch('/speak', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ text }),
+          });
+          if (!res.ok) throw new Error();
+
+          const blob = await res.blob();
+          const url  = URL.createObjectURL(blob);
+          speakAudio = new Audio(url);
+          speakAudio.onended = () => {
+            URL.revokeObjectURL(url);
+            speakAudio = null;
+            btnSpeak.classList.remove('playing');
+            btnSpeak.innerHTML = '🔊 Escuchar';
+          };
+          speakAudio.play();
+        } catch {
+          btnSpeak.classList.remove('playing');
+          btnSpeak.innerHTML = '🔊 Escuchar';
+        }
+      });
+
+      div.appendChild(document.createElement('br'));
+      div.appendChild(btnSpeak);
     }
 
     messages.appendChild(div);
@@ -483,6 +634,7 @@
         messages.appendChild(err);
       } else {
         addMsg('bot', data.response, data.context_logos);
+        speakText(data.response);   // ← TTS automático
       }
     } catch (e) {
       typing.remove();
@@ -497,61 +649,134 @@
     userInput.focus();
   }
 
-  // ── Micrófono — Web Speech API ───────────────────────────────────────────
-  const btnMic = document.getElementById('btnMic');
-  let recognition = null;
-  let isRecording = false;
+  // ── Micrófono — MediaRecorder + Groq Whisper ────────────────────────────
+  //   Funciona en Brave, Firefox y Chrome sin depender de Google Speech API
+  // ────────────────────────────────────────────────────────────────────────
+  const btnMic   = document.getElementById('btnMic');
+  const micLabel = document.getElementById('micStatus');
+  let mediaRecorder  = null;
+  let audioChunks    = [];
+  let isRecording    = false;
+  let micStream      = null;
 
-  if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    recognition = new SR();
-    recognition.lang       = 'es-ES';
-    recognition.continuous = false;
-    recognition.interimResults = true;
+  // Elige el mimetype que soporte el navegador actual
+  function getBestMimeType() {
+    const candidates = [
+      'audio/webm;codecs=opus',
+      'audio/webm',
+      'audio/ogg;codecs=opus',
+      'audio/ogg',
+      'audio/mp4',
+    ];
+    return candidates.find(t => MediaRecorder.isTypeSupported(t)) || '';
+  }
 
-    recognition.onstart = () => {
-      isRecording = true;
-      btnMic.classList.add('recording');
-      btnMic.title = 'Escuchando... (clic para detener)';
+  function setMicLabel(text, cls = '') {
+    micLabel.textContent  = text;
+    micLabel.className    = 'mic-status ' + cls;
+  }
+
+  function showMicError(msg) {
+    const errDiv = document.createElement('div');
+    errDiv.className  = 'msg error';
+    errDiv.textContent = '🎤 ' + msg;
+    messages.appendChild(errDiv);
+    messages.scrollTop = messages.scrollHeight;
+  }
+
+  async function stopRecordingAndTranscribe() {
+    if (!mediaRecorder || mediaRecorder.state === 'inactive') return;
+
+    // Detener grabación → dispara el evento 'stop'
+    mediaRecorder.stop();
+    micStream.getTracks().forEach(t => t.stop());
+    isRecording = false;
+    btnMic.classList.remove('recording');
+    btnMic.title = 'Hablar';
+    setMicLabel('Procesando...', 'processing');
+  }
+
+  async function startRecording() {
+    try {
+      micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err) {
+      const msgs = {
+        NotAllowedError:  'Permiso de micrófono denegado. Habilítalo en la configuración del navegador.',
+        NotFoundError:    'No se encontró micrófono. ¿Está conectado?',
+        NotReadableError: 'El micrófono está siendo usado por otra aplicación.',
+      };
+      showMicError(msgs[err.name] || 'No se pudo acceder al micrófono: ' + err.message);
+      return;
+    }
+
+    audioChunks = [];
+    const mimeType = getBestMimeType();
+    mediaRecorder = new MediaRecorder(micStream, mimeType ? { mimeType } : {});
+
+    mediaRecorder.ondataavailable = e => {
+      if (e.data && e.data.size > 0) audioChunks.push(e.data);
     };
 
-    recognition.onresult = (e) => {
-      const transcript = Array.from(e.results)
-        .map(r => r[0].transcript)
-        .join('');
-      userInput.value = transcript;
-      // Si el resultado es final, enviar automáticamente
-      if (e.results[e.results.length - 1].isFinal) {
-        recognition.stop();
-        setTimeout(() => sendMessage(), 300);
+    mediaRecorder.onstop = async () => {
+      if (audioChunks.length === 0) {
+        setMicLabel('');
+        showMicError('No se capturó audio. Intenta de nuevo.');
+        return;
+      }
+
+      const mime  = mediaRecorder.mimeType || 'audio/webm';
+      const ext   = mime.includes('ogg') ? 'ogg' : mime.includes('mp4') ? 'mp4' : 'webm';
+      const blob  = new Blob(audioChunks, { type: mime });
+
+      // Enviar al backend (mismo origen)
+      const formData = new FormData();
+      formData.append('audio', blob, `recording.${ext}`);
+
+      try {
+        const res  = await fetch('/transcribe', { method: 'POST', body: formData });
+        const data = await res.json();
+        setMicLabel('');
+
+        if (!res.ok) {
+          showMicError(data.detail || 'Error en la transcripción.');
+          return;
+        }
+
+        const text = (data.transcript || '').trim();
+        if (!text) {
+          showMicError('No se detectó voz clara. Intenta hablar más cerca del micrófono.');
+          return;
+        }
+
+        userInput.value = text;
+        setTimeout(() => sendMessage(), 200);
+
+      } catch (e) {
+        setMicLabel('');
+        showMicError('Error de conexión con el servidor de transcripción.');
       }
     };
 
-    recognition.onerror = () => {
-      isRecording = false;
-      btnMic.classList.remove('recording');
-      btnMic.title = 'Hablar';
-    };
+    mediaRecorder.start(250);  // chunk cada 250 ms para mayor fiabilidad
+    isRecording = true;
+    btnMic.classList.add('recording');
+    btnMic.title = 'Grabando... (clic para detener)';
+    setMicLabel('🔴 Escuchando — clic en 🎤 para terminar', 'listening');
+  }
 
-    recognition.onend = () => {
-      isRecording = false;
-      btnMic.classList.remove('recording');
-      btnMic.title = 'Hablar';
-    };
-
-    btnMic.addEventListener('click', () => {
-      if (isRecording) {
-        recognition.stop();
-      } else {
-        userInput.value = '';
-        recognition.start();
-      }
-    });
-  } else {
-    // Navegador sin soporte
-    btnMic.title   = 'Tu navegador no soporta reconocimiento de voz';
+  // Verificar soporte de MediaRecorder
+  if (!window.MediaRecorder || !navigator.mediaDevices) {
+    btnMic.title         = 'Tu navegador no soporta grabación de audio';
     btnMic.style.opacity = '0.3';
     btnMic.style.cursor  = 'not-allowed';
+  } else {
+    btnMic.addEventListener('click', () => {
+      if (isRecording) {
+        stopRecordingAndTranscribe();
+      } else {
+        startRecording();
+      }
+    });
   }
 
 
