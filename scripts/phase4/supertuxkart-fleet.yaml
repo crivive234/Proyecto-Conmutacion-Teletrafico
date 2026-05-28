@@ -1,21 +1,9 @@
-# supertuxkart-fleet.yaml
-# Flota de 3 servidores SuperTuxKart gestionada por Agones.
-#
-# Adaptaciones para Minikube (sin LoadBalancer externo):
-#   - Se usa hostNetwork: true + hostPort para que los jugadores
-#     puedan conectarse directamente por la IP del nodo Minikube.
-#   - 3 replicas = 3 partidas simultáneas posibles.
-#
-# Aplicar con:
-#   kubectl apply -f scripts/phase4/supertuxkart-fleet.yaml
-
 apiVersion: agones.dev/v1
 kind: Fleet
 metadata:
   name: supertuxkart
   namespace: default
 spec:
-  # Número de servidores de juego disponibles simultáneamente
   replicas: 3
 
   template:
@@ -23,15 +11,12 @@ spec:
       labels:
         app: supertuxkart
     spec:
-      # Puerto del servidor de juego (UDP — SuperTuxKart usa UDP)
       ports:
         - name:          default
-          portPolicy:    Static        # puerto fijo para Minikube
-          containerPort: 8080          # puerto interno del contenedor
-          hostPort:      7654          # puerto accesible desde fuera del cluster
+          portPolicy:    Dynamic
+          containerPort: 8080
           protocol:      UDP
 
-      # Configuración del health check de Agones
       health:
         initialDelaySeconds: 30
         periodSeconds:       5
@@ -39,14 +24,10 @@ spec:
 
       template:
         spec:
-          # hostNetwork permite acceder al servidor por la IP del nodo Minikube
-          hostNetwork: true
-
           containers:
             - name:  supertuxkart
-              image: gcr.io/agones-images/supertuxkart-example:0.14
+              image: us-docker.pkg.dev/agones-images/examples/supertuxkart-example:0.15
 
-              # Recursos limitados para no saturar la CPU
               resources:
                 requests:
                   memory: "256Mi"
