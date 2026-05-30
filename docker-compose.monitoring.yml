@@ -1,0 +1,114 @@
+# docker-compose.monitoring.yml
+# Stack de monitoreo — se usa junto al docker-compose.yml principal:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d
+#
+# Servicios que agrega:
+#   - prometheus    → recolecta métricas         → puerto 9090
+#   - grafana       → dashboards visuales         → puerto 3000
+#   - cadvisor      → métricas de contenedores    → puerto 8081
+#   - node-exporter → métricas del host           → puerto 9100
+#   - yolo-exporter → métricas de detecciones     → puerto 9200
+
+services:
+
+  # ── Prometheus ────────────────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.51.2
+    container_name: prometheus
+    restart: unless-stopped
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=7d'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    ports:
+      - "9090:9090"
+    networks:
+      - devops-net
+
+  # ── Grafana ───────────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.4.2
+    container_name: grafana
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_HTTP_PORT=3000
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+    networks:
+      - devops-net
+    depends_on:
+      - prometheus
+
+  # ── cAdvisor — métricas de contenedores Docker ────────────────────────────────
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    container_name: cadvisor
+    restart: unless-stopped
+    privileged: true
+    devices:
+      - /dev/kmsg:/dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /cgroup:/cgroup:ro
+    ports:
+      - "8081:8080"
+    networks:
+      - devops-net
+
+  # ── Node Exporter — métricas del sistema host ─────────────────────────────────
+  node-exporter:
+    image: prom/node-exporter:v1.7.0
+    container_name: node-exporter
+    restart: unless-stopped
+    pid: host
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.rootfs=/rootfs'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    ports:
+      - "9100:9100"
+    networks:
+      - devops-net
+
+  # ── YOLO Exporter — convierte /detections en métricas Prometheus ──────────────
+  yolo-exporter:
+    build:
+      context: ./monitoring/yolo_exporter
+      dockerfile: Dockerfile
+    container_name: yolo-exporter
+    restart: unless-stopped
+    environment:
+      - DETECTOR_URL=http://detector:8000
+      - SCRAPE_INTERVAL=5
+    ports:
+      - "9200:9200"
+    networks:
+      - devops-net
+    depends_on:
+      - detector
+
+# ── Volúmenes persistentes ────────────────────────────────────────────────────
+volumes:
+  prometheus-data:
+  grafana-data:

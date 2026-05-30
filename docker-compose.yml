@@ -8,7 +8,7 @@ services:
     container_name: detector
     restart: unless-stopped
     devices:
-      - /dev/video0:/dev/video0
+      - /dev/video4:/dev/video0   # 1080_Camera USB
     volumes:
       - ./models:/app/models
       - ./dataset:/app/dataset

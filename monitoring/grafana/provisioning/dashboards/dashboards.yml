@@ -1,0 +1,14 @@
+# monitoring/grafana/provisioning/dashboards/dashboards.yml
+# Le dice a Grafana dónde encontrar los archivos JSON de dashboards.
+
+apiVersion: 1
+
+providers:
+  - name:            DevOps Project
+    orgId:           1
+    type:            file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates:  true
+    options:
+      path: /var/lib/grafana/dashboards

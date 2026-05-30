@@ -1,0 +1,189 @@
+! ============================================================
+! router_config.ios
+! Configuración completa del router c3660 en GNS3
+! Proyecto: Conmutación y Teletráfico — Compensar
+!
+! Interfaces:
+!   fa0/0  → VLAN 10 VIDEO  (10.10.10.0/24) → detector, chatbot
+!   fa1/0  → VLAN 20 DATOS  (10.20.20.0/24) → Minikube/SuperTuxKart
+!   fa2/0  → VLAN 30 MGMT   (10.30.30.0/24) → Grafana, Prometheus
+!
+! Pega estos comandos en la consola del c3660 dentro de GNS3
+! ============================================================
+
+! ── Configuración básica ─────────────────────────────────────────────────────
+
+enable
+configure terminal
+
+hostname ROUTER-PROYECTO
+enable secret cisco123
+no ip domain-lookup
+ip routing
+
+! Banner de identificación
+banner motd ^
+========================================
+  Proyecto Final — Conmutacion y Tele
+  VLAN VIDEO / DATOS / MGMT
+  Fundacion Universitaria Compensar
+========================================
+^
+
+! ── Interfaces por VLAN ───────────────────────────────────────────────────────
+
+! --- VLAN 10: VIDEO (detector YOLO + chatbot) ---
+interface FastEthernet0/0
+ description VLAN-10-VIDEO-Docker
+ ip address 10.10.10.1 255.255.255.0
+ ip access-group ACL-VIDEO-IN in
+ duplex auto
+ speed auto
+ no shutdown
+
+! --- VLAN 20: DATOS (Minikube / SuperTuxKart UDP) ---
+interface FastEthernet1/0
+ description VLAN-20-DATOS-Kubernetes
+ ip address 10.20.20.1 255.255.255.0
+ ip access-group ACL-DATOS-IN in
+ duplex auto
+ speed auto
+ no shutdown
+
+! --- VLAN 30: MGMT (Grafana, Prometheus) ---
+interface FastEthernet2/0
+ description VLAN-30-MGMT-Monitoreo
+ ip address 10.30.30.1 255.255.255.0
+ ip access-group ACL-MGMT-IN in
+ duplex auto
+ speed auto
+ no shutdown
+
+! ── Rutas estáticas ───────────────────────────────────────────────────────────
+
+! Ruta por defecto hacia el host Arch Linux (VLAN 30)
+ip route 0.0.0.0 0.0.0.0 10.30.30.254
+
+! Ruta hacia la red interna de Minikube
+ip route 192.168.49.0 255.255.255.0 10.20.20.254
+
+! ── ACLs extendidas ───────────────────────────────────────────────────────────
+
+! --- ACL VLAN 10 VIDEO ---
+! Permite tráfico del stream YOLO (puerto 8000) y chatbot (8001)
+! Bloquea acceso directo a MGMT desde VIDEO
+ip access-list extended ACL-VIDEO-IN
+ 10 permit tcp 10.10.10.0 0.0.0.255 any eq 8000
+ 20 permit tcp 10.10.10.0 0.0.0.255 any eq 8001
+ 30 permit tcp any 10.10.10.0 0.0.0.255 eq 8000
+ 40 permit tcp any 10.10.10.0 0.0.0.255 eq 8001
+ 50 deny   ip 10.10.10.0 0.0.0.255 10.30.30.0 0.0.0.255 log
+ 60 permit ip any any
+
+! --- ACL VLAN 20 DATOS ---
+! Permite tráfico UDP de SuperTuxKart (puertos 7000-8000)
+! Bloquea acceso a MGMT desde DATOS
+ip access-list extended ACL-DATOS-IN
+ 10 permit udp 10.20.20.0 0.0.0.255 any range 7000 8000
+ 20 permit udp any 10.20.20.0 0.0.0.255 range 7000 8000
+ 30 deny   ip 10.20.20.0 0.0.0.255 10.30.30.0 0.0.0.255 log
+ 40 permit ip any any
+
+! --- ACL VLAN 30 MGMT ---
+! Solo permite tráfico de gestión (Grafana 3000, Prometheus 9090, etc.)
+! MGMT puede acceder a todo (administración)
+ip access-list extended ACL-MGMT-IN
+ 10 permit tcp any 10.30.30.0 0.0.0.255 eq 3000
+ 20 permit tcp any 10.30.30.0 0.0.0.255 eq 9090
+ 30 permit tcp any 10.30.30.0 0.0.0.255 eq 9100
+ 40 permit tcp any 10.30.30.0 0.0.0.255 eq 9200
+ 50 permit tcp any 10.30.30.0 0.0.0.255 eq 8081
+ 60 permit ip 10.30.30.0 0.0.0.255 any
+ 70 deny   ip any 10.30.30.0 0.0.0.255 log
+ 80 permit ip any any
+
+! ── QoS — Marcado DSCP ───────────────────────────────────────────────────────
+
+! Clasifica el tráfico por tipo antes de aplicar políticas
+class-map match-any CM-VIDEO
+ description Trafico YOLO stream MJPEG alta prioridad
+ match protocol http
+ match access-group name ACL-MATCH-VIDEO
+
+class-map match-any CM-DATOS
+ description Trafico UDP SuperTuxKart
+ match access-group name ACL-MATCH-DATOS
+
+class-map match-any CM-MGMT
+ description Trafico de monitoreo Grafana-Prometheus
+ match access-group name ACL-MATCH-MGMT
+
+! ACLs de clasificación para QoS
+ip access-list extended ACL-MATCH-VIDEO
+ permit tcp any any eq 8000
+ permit tcp any any eq 8001
+
+ip access-list extended ACL-MATCH-DATOS
+ permit udp any any range 7000 8000
+
+ip access-list extended ACL-MATCH-MGMT
+ permit tcp any any eq 3000
+ permit tcp any any eq 9090
+ permit tcp any any eq 9100
+
+! ── QoS — Policy Map CBWFQ ───────────────────────────────────────────────────
+!
+! Prioridades:
+!   VIDEO  → 50% ancho de banda garantizado (stream YOLO)
+!   DATOS  → 30% ancho de banda garantizado (SuperTuxKart UDP)
+!   MGMT   → 15% ancho de banda garantizado (Grafana)
+!   resto  → 5%  fair-queue
+!
+policy-map PM-QOS-PROYECTO
+ class CM-VIDEO
+  bandwidth percent 50
+  set ip dscp af41
+ class CM-DATOS
+  bandwidth percent 30
+  set ip dscp af21
+ class CM-MGMT
+  bandwidth percent 15
+  set ip dscp cs2
+ class class-default
+  bandwidth percent 5
+  fair-queue
+
+! Aplicar política QoS en salida de todas las interfaces
+interface FastEthernet0/0
+ service-policy output PM-QOS-PROYECTO
+
+interface FastEthernet1/0
+ service-policy output PM-QOS-PROYECTO
+
+interface FastEthernet2/0
+ service-policy output PM-QOS-PROYECTO
+
+! ── Logging para evidencia ────────────────────────────────────────────────────
+
+logging buffered 16384 debugging
+logging console informational
+
+! Registrar coincidencias de ACL (para capturas de evidencia)
+ip access-list log-update threshold 1
+
+! ── Guardar configuración ─────────────────────────────────────────────────────
+
+end
+write memory
+
+! ── Verificación post-configuración ──────────────────────────────────────────
+! Ejecuta estos comandos para verificar:
+!
+!   show ip interface brief
+!   show ip route
+!   show access-lists
+!   show policy-map interface FastEthernet0/0
+!   show class-map
+!   ping 10.10.10.254
+!   ping 10.20.20.254
+!   ping 10.30.30.254

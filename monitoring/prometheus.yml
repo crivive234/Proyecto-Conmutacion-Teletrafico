@@ -1,0 +1,35 @@
+# monitoring/prometheus.yml
+# Configuración de Prometheus — define qué endpoints scrapeará
+# y con qué frecuencia.
+
+global:
+  scrape_interval:     15s   # cada cuánto recolectar métricas
+  evaluation_interval: 15s   # cada cuánto evaluar alertas
+
+scrape_configs:
+
+  # ── Prometheus se monitorea a sí mismo ───────────────────────────────────────
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # ── cAdvisor — métricas de todos los contenedores Docker ─────────────────────
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['cadvisor:8080']
+    metric_relabel_configs:
+      # Solo conservar contenedores relevantes del proyecto
+      - source_labels: [container_label_com_docker_compose_service]
+        regex: 'detector|chatbot|parrot-audit|yolo-exporter'
+        action: keep
+
+  # ── Node Exporter — métricas del host Arch Linux ─────────────────────────────
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node-exporter:9100']
+
+  # ── YOLO Exporter — detecciones de logos en tiempo real ──────────────────────
+  - job_name: 'yolo-exporter'
+    static_configs:
+      - targets: ['yolo-exporter:9200']
+    scrape_interval: 5s   # más frecuente para ver detecciones en tiempo real
