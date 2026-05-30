@@ -67,10 +67,10 @@ Monitoreo
 
 Se entrenó un modelo YOLOv8 con un dataset sintético generado con `scripts/generate_dataset.py`, que superpone logos PNG con fondo transparente sobre fondos variados. El entrenamiento toma ~30-60 min en CPU y produce `models/best.pt`. El modelo corre dentro de un contenedor Docker con FastAPI exponiendo el stream MJPEG en el puerto 8000.
 
-| | |
-|---|---|
+| Docker detectado por YOLO | Terraform detectado por YOLO |
+|---------------------------|------------------------------|
 | ![YOLO detectando Docker](evidence/brave_screenshot_localhost.png) | ![YOLO detectando Terraform](evidence/brave_screenshot_localhost1.png) |
-brave_screenshot_localhost
+
 ### Fase 2 — Chatbot con contexto de logos
 
 Un segundo contenedor corre el chatbot en el puerto 8001. Cada vez que el usuario escribe, el chatbot consulta `/detections` del detector para saber qué logos están en pantalla y los incluye como contexto en el prompt enviado a la API de Groq (LLaMA 3.1). El asistente responde en texto y tiene opción de voz.
@@ -88,11 +88,9 @@ Un contenedor basado en Parrot OS ejecuta scripts de `nmap` para escanear la red
 
 Se instaló Minikube con driver Docker, se desplegó Agones 1.44.0 vía Helm y se creó una flota de 3 servidores SuperTuxKart con `portPolicy: Dynamic` para que Agones asigne un puerto UDP único a cada GameServer. Los 3 jugadores se conectan al mismo servidor usando la IP `192.168.49.2` y el puerto asignado.
 
-| | |
-|---|---|
-| ![3 servidores Ready](evidence/Jugadores1.png) | ![Lobby con 3 jugadores](evidence/Jugadores2.png) |
-
-![Carrera con 3 jugadores en pista](evidence/Jugadores3.png)
+| 3 servidores Ready | Lobby con 3 jugadores | Carrera con 3 jugadores en pista |
+|--------------------|----------------------|-----------------------------------|
+| ![3 servidores Ready](evidence/Jugadores1.png) | ![Lobby con 3 jugadores](evidence/Jugadores2.png) | ![Carrera con 3 jugadores en pista](evidence/Jugadores3.png) |
 
 ### Fase 5 — Topología de red con GNS3 + Cisco c3660
 
@@ -107,7 +105,7 @@ Se crearon 3 bridges Linux (`br-vlan10`, `br-vlan20`, `br-vlan30`) y se conectar
 **Capturas Wireshark por VLAN:**
 
 | VLAN VIDEO (gns3tap0-0) | VLAN DATOS (gns3tap1-0) | VLAN MGMT (gns3tap2-0) |
-|---|---|---|
+|:---:|:---:|:---:|
 | ![Wireshark VLAN VIDEO](evidence/vlan-video.png) | ![Wireshark VLAN DATOS](evidence/vlan-datos.png) | ![Wireshark VLAN MGMT](evidence/vlan-mgmt.png) |
 
 Las capturas muestran anuncios CDP del `ROUTER-PROYECTO` en cada interfaz (`FastEthernet0/0`, `FastEthernet1/0`, `FastEthernet2/0`) y tráfico ARP de los contenedores en la VLAN VIDEO.
