@@ -1,12 +1,12 @@
 # DevOps Logo Detector
 
-Detección en tiempo real de logos de herramientas DevOps usando **YOLOv8** + **FastAPI** + **Groq**, orquestación de servidores de juego con **Kubernetes + Agones**, auditoría de red con **Parrot OS** y monitoreo con **Grafana + Prometheus**.
+Detección en tiempo real de logos de herramientas DevOps usando **YOLOv8** + **FastAPI** + **Groq**, orquestación de servidores de juego con **Kubernetes + Agones**, auditoría de red con **Parrot OS**, topología de red simulada con **GNS3 + Cisco c3660** y monitoreo con **Grafana + Prometheus**.
 
 Proyecto final de la asignatura **Conmutación y Teletráfico** — Fundación Universitaria Compensar.
 
 ---
 
-## Fases del proyecto
+## Estado del proyecto
 
 | Fase | Descripción | Estado |
 |------|-------------|--------|
@@ -14,8 +14,8 @@ Proyecto final de la asignatura **Conmutación y Teletráfico** — Fundación U
 | 2 | Chatbot integrado con detecciones | ✅ Completa |
 | 3 | Auditoría de red con Parrot OS | ✅ Completa |
 | 4 | Kubernetes + Agones + SuperTuxKart | ✅ Completa |
-| 5 | Equipos físicos de red (VLANs, QoS, ACLs) | ⏳ Pendiente |
-| 6 | Monitoreo con Grafana + Prometheus | ⏳ Pendiente |
+| 5 | Topología de red con GNS3 + c3660 | ✅ Completa |
+| 6 | Monitoreo con Grafana + Prometheus | ✅ Completa |
 
 ---
 
@@ -33,7 +33,7 @@ Proyecto final de la asignatura **Conmutación y Teletráfico** — Fundación U
 
 ---
 
-## Arquitectura
+## Arquitectura general
 
 ```
 Browser (localhost:8001)
@@ -43,345 +43,185 @@ Browser (localhost:8001)
                                   └── consulta ────→ detector:8000/detections
                                   └── respuesta ───→ Groq API (LLaMA 3.1)
 
-Kubernetes (Minikube)
-  └── Agones
-        └── Fleet: supertuxkart (3 réplicas)
-              ├── GameServer 1 → 192.168.49.2:<puerto-dinámico>
-              ├── GameServer 2 → 192.168.49.2:<puerto-dinámico>
-              └── GameServer 3 → 192.168.49.2:<puerto-dinámico>
+GNS3 — Router Cisco c3660
+  ├── fa0/0 → VLAN 10 VIDEO  (10.10.10.0/24) → detector, chatbot
+  ├── fa1/0 → VLAN 20 DATOS  (10.20.20.0/24) → Minikube / SuperTuxKart
+  └── fa2/0 → VLAN 30 MGMT   (10.30.30.0/24) → Grafana, Prometheus
+
+Kubernetes (Minikube) + Agones
+  └── Fleet supertuxkart — 3 GameServers (puertos dinámicos UDP)
+
+Monitoreo
+  ├── Prometheus → scrape cadvisor, node-exporter, yolo-exporter
+  └── Grafana    → dashboards CPU, RAM, red, detecciones YOLO
 ```
-
-Contenedores Docker en la red interna `devops-net`:
-
-| Contenedor | Puerto | Función |
-|------------|--------|---------|
-| `detector` | 8000 | Captura cámara, corre YOLOv8, expone detecciones |
-| `chatbot`  | 8001 | Sirve la UI, gestiona el chat con contexto de logos |
 
 ---
 
-## Requisitos
+## Cómo se construyó este proyecto
 
-- Docker y Docker Compose
-- Minikube + kubectl + Helm (solo para Fase 4)
-- Cámara USB conectada (o archivo de video)
-- Clave de API de Groq (gratis en [console.groq.com](https://console.groq.com))
-- Modelo entrenado `models/best.pt`
+### Fase 1 — Detección YOLO
 
----
+Se entrenó un modelo YOLOv8 con un dataset sintético generado con `scripts/generate_dataset.py`, que superpone logos PNG con fondo transparente sobre fondos variados. El entrenamiento toma ~30-60 min en CPU y produce `models/best.pt`. El modelo corre dentro de un contenedor Docker con FastAPI exponiendo el stream MJPEG en el puerto 8000.
 
-## Instalación y primer uso
+| | |
+|---|---|
+| ![YOLO detectando Docker](evidence/brave_screenshot_localhost.png) | ![YOLO detectando Terraform](evidence/Captura_de_pantalla_20260526_173715.png) |
 
-### 1. Clonar el repositorio
+### Fase 2 — Chatbot con contexto de logos
 
-```bash
-git clone <repo>
-cd devops-logo-detector
-```
+Un segundo contenedor corre el chatbot en el puerto 8001. Cada vez que el usuario escribe, el chatbot consulta `/detections` del detector para saber qué logos están en pantalla y los incluye como contexto en el prompt enviado a la API de Groq (LLaMA 3.1). El asistente responde en texto y tiene opción de voz.
 
-### 2. Configurar la API key de Groq
+![YOLO detectando Kubernetes con chatbot respondiendo](evidence/Captura_de_pantalla_20260525_214310.png)
 
-```bash
-echo "GROQ_API_KEY=gsk_tu-clave-aqui" > .env
-```
+### Fase 3 — Auditoría con Parrot OS
 
-### 3. Generar el dataset y entrenar el modelo
+Un contenedor basado en Parrot OS ejecuta scripts de `nmap` para escanear la red interna del proyecto. Genera un reporte HTML automático con los servicios descubiertos, puertos abiertos y verificación HTTP de los endpoints.
 
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements-dev.txt
+![Reporte de auditoría Parrot OS](evidence/Captura_de_pantalla_20260529_212616.png)
 
-# Generar dataset sintético
-python scripts/generate_dataset.py
+### Fase 4 — Kubernetes + Agones + SuperTuxKart
 
-# Entrenar (~30-60 min en CPU)
-python scripts/train.py
-```
+Se instaló Minikube con driver Docker, se desplegó Agones 1.44.0 vía Helm y se creó una flota de 3 servidores SuperTuxKart con `portPolicy: Dynamic` para que Agones asigne un puerto UDP único a cada GameServer. Los 3 jugadores se conectan al mismo servidor usando la IP `192.168.49.2` y el puerto asignado.
 
-El modelo entrenado queda en `models/best.pt` automáticamente.
+| | |
+|---|---|
+| ![3 servidores Ready](evidence/Captura_de_pantalla_20260529_215740.png) | ![Lobby con 3 jugadores](evidence/Captura_de_pantalla_20260529_230638.png) |
 
-### 4. Agregar logos PNG con fondo transparente
+![Carrera con 3 jugadores en pista](evidence/Captura_de_pantalla_20260529_230749.png)
 
-```
-logos/
-├── docker.png
-├── podman.png
-├── terraform.png
-├── qemu.png
-├── ansible.png
-├── rabbitmq.png
-└── kubernetes.png
-```
+### Fase 5 — Topología de red con GNS3 + Cisco c3660
 
-> Los logos deben tener **fondo transparente** (canal alpha).
+Se crearon 3 bridges Linux (`br-vlan10`, `br-vlan20`, `br-vlan30`) y se conectaron como nodos Cloud en GNS3. El router Cisco c3660 (Dynamips) enruta entre las 3 VLANs con ACLs extendidas y política QoS CBWFQ que prioriza el stream de YOLO (AF41) sobre el tráfico de juego (AF21) y monitoreo (CS2). El DHCP fue provisto por `dnsmasq`.
 
-### 5. Levantar los contenedores
+![Topología GNS3](evidence/Captura_de_pantalla_20260529_220655.png)
 
-```bash
-docker compose up --build
-```
+![Consola c3660 — interfaces up](evidence/Captura_de_pantalla_20260529_215813.png)
 
-### 6. Abrir la interfaz
+![Ping al router y rutas VLANs verificadas](evidence/Captura_de_pantalla_20260529_221847.png)
 
-Abre en el browser: **http://localhost:8001**
+**Capturas Wireshark por VLAN:**
+
+| VLAN VIDEO (gns3tap0-0) | VLAN DATOS (gns3tap1-0) | VLAN MGMT (gns3tap2-0) |
+|---|---|---|
+| ![Wireshark VLAN VIDEO](evidence/Captura_de_pantalla_20260529_222125.png) | ![Wireshark VLAN DATOS](evidence/Captura_de_pantalla_20260529_223128.png) | ![Wireshark VLAN MGMT](evidence/Captura_de_pantalla_20260529_223941.png) |
+
+Las capturas muestran anuncios CDP del `ROUTER-PROYECTO` en cada interfaz (`FastEthernet0/0`, `FastEthernet1/0`, `FastEthernet2/0`) y tráfico ARP de los contenedores en la VLAN VIDEO.
+
+### Fase 6 — Monitoreo con Grafana + Prometheus
+
+Se levantó un stack de monitoreo en Docker con Prometheus recolectando métricas de cAdvisor (contenedores), Node Exporter (host Arch Linux) y un exportador personalizado `yolo-exporter` que convierte las detecciones de logos en métricas Prometheus. Grafana muestra dashboards en tiempo real con refresh de 10s.
+
+![Prometheus targets UP](evidence/Captura_de_pantalla_20260529_224712.png)
+
+![Grafana dashboard — YOLO + CPU + RAM + Red](evidence/Captura_de_pantalla_20260529_224755.png)
+
+![cAdvisor — contenedores Docker](evidence/Captura_de_pantalla_20260529_225233.png)
 
 ---
 
-## Fase 4 — Kubernetes + Agones + SuperTuxKart
+## Guía de uso rápido
 
 ### Requisitos
 
-- Minikube `>= v1.38`
-- kubectl
-- Helm `>= v4`
-- Docker corriendo como driver de Minikube
+- Arch Linux con Docker, Minikube, Helm, GNS3 instalados
+- Cámara USB conectada
+- Clave API de Groq en `.env`
+- Imagen c3660 en `~/GNS3/images/IOS/`
+- Modelo entrenado en `models/best.pt`
 
-### Instalación del cluster
+### 1. Levantar Docker (Fases 1, 2, 3 y 6)
 
 ```bash
-bash scripts/phase4/install_k8s_arch.sh
+# Detector + Chatbot + Monitoreo
+docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d
+
+# Auditoría Parrot OS (opcional)
+docker compose --profile audit run --rm parrot
 ```
 
-Instala kubectl, Minikube y Helm (si no están), y arranca el cluster con driver Docker.
+Abrir en el browser: **http://localhost:8001** (YOLO + Chatbot)
 
-### Desplegar Agones y la flota de SuperTuxKart
+### 2. Levantar Kubernetes (Fase 4)
 
 ```bash
+bash scripts/phase4/install_k8s_arch.sh   # primera vez
 bash scripts/phase4/setup_agones.sh
+bash scripts/phase4/connect_players.sh    # ver IPs y puertos
 ```
 
-Instala Agones 1.44.0 vía Helm y despliega una flota de 3 servidores SuperTuxKart.
+Conectar SuperTuxKart: **Online → Enter server address → `192.168.49.2:<puerto>`**
 
-### Obtener IPs y puertos de conexión
+### 3. Levantar la red GNS3 (Fase 5)
 
 ```bash
-bash scripts/phase4/connect_players.sh
+sudo bash scripts/phase5/setup_network.sh
+# Luego abrir GNS3 y seguir: scripts/phase5/gns3_guide.md
 ```
 
-Muestra la IP del nodo Minikube y el puerto dinámico asignado a cada GameServer.
+### 4. Acceder al monitoreo (Fase 6)
+
+| Servicio | URL | Credenciales |
+|----------|-----|--------------|
+| Grafana | http://localhost:3000 | admin / admin |
+| Prometheus | http://localhost:9090 | — |
+| cAdvisor | http://localhost:8081 | — |
+
+### 5. Apagar todo
 
 ```bash
-# Ver el estado de los servidores directamente
-kubectl get gameservers
-```
+# Docker
+docker compose -f docker-compose.yml -f docker-compose.monitoring.yml down
 
-Ejemplo de salida cuando los servidores están listos:
-
-```
-NAME                       STATE   ADDRESS        PORT   NODE       AGE
-supertuxkart-xxxxx-aaaaa   Ready   192.168.49.2   7308   minikube   2m
-supertuxkart-xxxxx-bbbbb   Ready   192.168.49.2   7090   minikube   2m
-supertuxkart-xxxxx-ccccc   Ready   192.168.49.2   7791   minikube   2m
-```
-
-### Conectar jugadores
-
-1. Descarga SuperTuxKart desde [supertuxkart.net](https://supertuxkart.net)
-2. Abre el juego → **Online → Enter server address**
-3. Ingresa la `ADDRESS` y el `PORT` de cualquier GameServer en estado `Ready`
-
-**Para probar con 3 ventanas en la misma máquina:**
-
-```bash
-supertuxkart & supertuxkart & supertuxkart
-```
-
-> **Nota:** La IP `192.168.49.2` es interna de Minikube y solo es accesible desde la máquina host. Para exponer a la red local se requiere `minikube tunnel`.
-
-### Comandos útiles
-
-```bash
-# Ver estado de la flota
-kubectl get fleet
-
-# Ver todos los servidores y sus puertos
-kubectl get gameservers
-
-# Ver logs de un servidor
-kubectl logs <nombre-gameserver>
-
-# Escalar la flota
-kubectl scale fleet supertuxkart --replicas=5
-
-# Eliminar la flota
-kubectl delete fleet supertuxkart
-
-# Pausar el cluster (guarda el estado)
+# Kubernetes
 minikube stop
 
-# Eliminar el cluster
-minikube delete
+# Red GNS3
+sudo bash scripts/phase5/teardown_network.sh
 ```
-
----
-
-## Uso de la interfaz web
-
-```
-┌─────────────────────────────┬──────────────────┐
-│                             │  Asistente DevOps│
-│   Stream de la cámara       │                  │
-│   (con bounding boxes)      │  [mensajes...]   │
-│                             │                  │
-├─────────────────────────────│                  │
-│ Logos detectados en pantalla│                  │
-│  ● docker  ● kubernetes     │  [escribe aquí]  │
-└─────────────────────────────┴──────────────────┘
-```
-
-1. **Apunta la cámara** hacia un logo de herramienta DevOps
-2. El panel inferior izquierdo muestra los **logos detectados en tiempo real**
-3. **Escribe una pregunta** en el chat sobre cualquier herramienta
-4. El asistente responde sabiendo **qué logos hay en pantalla** en ese momento
-
-**Ejemplo:**
-> *[Cámara detectando: docker, kubernetes]*
-> Usuario: "¿Qué diferencia hay entre estos dos?"
-> Asistente: "Docker es un motor de contenedores... Kubernetes es un orquestador..."
-
----
-
-## Endpoints de la API
-
-### Detector (puerto 8000)
-
-| Endpoint | Método | Descripción |
-|----------|--------|-------------|
-| `/stream` | GET | Stream MJPEG con bounding boxes |
-| `/detections` | GET | JSON con logos detectados actualmente |
-| `/health` | GET | Estado del modelo y la cámara |
-
-### Chatbot (puerto 8001)
-
-| Endpoint | Método | Descripción |
-|----------|--------|-------------|
-| `/` | GET | Interfaz web |
-| `/chat` | POST | Enviar mensaje y recibir respuesta |
-| `/clear` | POST | Limpiar historial |
-| `/health` | GET | Estado del servicio |
-
----
-
-## Variables de entorno
-
-| Variable | Default | Descripción |
-|----------|---------|-------------|
-| `GROQ_API_KEY` | — | Clave de API de Groq (obligatoria) |
-| `MODEL_PATH` | `models/best.pt` | Ruta al modelo entrenado |
-| `CONFIDENCE_THRESHOLD` | `0.50` | Confianza mínima para detectar |
-| `VIDEO_SOURCE` | `0` | Fuente de video (0 = cámara, ruta = archivo) |
-| `MAX_FPS` | `15` | FPS máximos del stream |
-| `DETECTOR_URL` | `http://detector:8000` | URL interna del detector |
 
 ---
 
 ## Estructura del proyecto
 
 ```
-devops-logo-detector/
-├── app/                        ← Contenedor detector (Fase 1)
+proyecto-final/
+├── app/                          ← Detector YOLO (Fase 1)
 │   ├── main.py
 │   └── detector.py
-├── chatbot_app/                ← Contenedor chatbot (Fase 2)
+├── chatbot_app/                  ← Chatbot (Fase 2)
 │   ├── main.py
 │   ├── chatbot.py
-│   └── templates/
-│       └── index.html
-├── parrot_app/                 ← Contenedor auditoría (Fase 3)
+│   └── templates/index.html
+├── parrot_app/                   ← Auditoría (Fase 3)
 │   ├── audit.sh
 │   └── report.py
+├── monitoring/                   ← Stack de monitoreo (Fase 6)
+│   ├── prometheus.yml
+│   ├── yolo_exporter/
+│   └── grafana/
 ├── scripts/
-│   ├── generate_dataset.py
-│   ├── train.py
-│   └── phase4/                 ← Scripts Kubernetes (Fase 4)
-│       ├── install_k8s_arch.sh
-│       ├── setup_agones.sh
-│       ├── connect_players.sh
-│       └── supertuxkart-fleet.yaml
-├── logos/
-├── models/
-│   └── best.pt
-├── dataset/
-├── runs/
-├── reports/
-├── Dockerfile.detector
-├── Dockerfile.chatbot
-├── Dockerfile.parrot
+│   ├── phase4/                   ← Kubernetes + Agones
+│   ├── phase5/                   ← GNS3 + c3660
+│   └── phase6/                   ← Setup monitoreo
+├── evidence/                     ← Capturas de evidencia
+├── logos/                        ← PNGs con fondo transparente
+├── models/best.pt                ← Modelo entrenado
 ├── docker-compose.yml
-├── requirements.txt
-├── requirements-chatbot.txt
-├── requirements-dev.txt
+├── docker-compose.monitoring.yml
 └── .env
 ```
 
 ---
 
-## Comandos Docker útiles
+## Endpoints de la API
 
-```bash
-# Levantar todo
-docker compose up
-
-# Levantar en segundo plano
-docker compose up -d
-
-# Ver logs en tiempo real
-docker compose logs -f
-
-# Ver logs de un contenedor específico
-docker compose logs -f detector
-
-# Reconstruir después de cambios
-docker compose up --build
-
-# Ejecutar auditoría Parrot OS
-docker compose --profile audit run --rm parrot
-
-# Entrenar el modelo
-docker compose --profile train up trainer
-
-# Detener todo
-docker compose down
-```
+| Endpoint | Puerto | Descripción |
+|----------|--------|-------------|
+| `/stream` | 8000 | Stream MJPEG con bounding boxes |
+| `/detections` | 8000 | JSON con logos detectados |
+| `/health` | 8000 | Estado del detector |
+| `/` | 8001 | Interfaz web |
+| `/chat` | 8001 | Chat con el asistente |
 
 ---
-
-## Solución de problemas
-
-**El chatbot no responde:**
-```bash
-curl http://localhost:8001/health
-# Verifica que GROQ_API_KEY esté en el .env
-```
-
-**El modelo no detecta logos:**
-```bash
-curl http://localhost:8000/health
-# Verifica que models/best.pt existe
-# Si mAP50 < 0.70, regenera el dataset con más fondos en backgrounds/
-```
-
-**La cámara no abre:**
-```bash
-ls /dev/video*
-# Ajusta el device en docker-compose.yml
-```
-
-**GameServers en estado Error o Scheduled:**
-```bash
-kubectl logs <nombre-gameserver>
-# Verifica que la imagen del fleet.yaml es compatible con la versión de Agones instalada
-```
-
-**Error de red Docker en Arch Linux:**
-```bash
-sudo modprobe veth
-sudo systemctl restart docker
-```
-
----
-
-## Licencia
-
-MIT — Proyecto educativo / Fundación Universitaria Compensar.
