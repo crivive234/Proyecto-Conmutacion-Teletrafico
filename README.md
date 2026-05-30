@@ -1,7 +1,7 @@
 # Proyecto Final - CONMUTACION Y TELETRAFICO
 
 ## Menu Principal Conmutacion-Teletrafico
-- [Primer Taller](https://github.com/crivive234/Conmutacion-Teletrafico)
+- [Menu Principal ](https://github.com/crivive234/Conmutacion-Teletrafico)
 
 Detección en tiempo real de logos de herramientas DevOps usando **YOLOv8** + **FastAPI** + **Groq**, orquestación de servidores de juego con **Kubernetes + Agones**, auditoría de red con **Parrot OS**, topología de red simulada con **GNS3 + Cisco c3660** y monitoreo con **Grafana + Prometheus**.
 
