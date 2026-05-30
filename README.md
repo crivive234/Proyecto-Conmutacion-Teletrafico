@@ -1,4 +1,7 @@
-# DevOps Logo Detector
+# Proyecto Final - CONMUTACION Y TELETRAFICO
+
+## Menu Principal Conmutacion-Teletrafico
+- [Primer Taller](https://github.com/crivive234/Conmutacion-Teletrafico)
 
 Detección en tiempo real de logos de herramientas DevOps usando **YOLOv8** + **FastAPI** + **Groq**, orquestación de servidores de juego con **Kubernetes + Agones**, auditoría de red con **Parrot OS**, topología de red simulada con **GNS3 + Cisco c3660** y monitoreo con **Grafana + Prometheus**.
 
@@ -28,7 +31,7 @@ Proyecto final de la asignatura **Conmutación y Teletráfico** — Fundación U
 | 🟣 | Terraform |
 | 🖥️ | QEMU |
 | 🔴 | Ansible |
-| 🐇 | RabbitMQ |
+| 🐇 | Jenkins |
 | ☸️ | Kubernetes |
 
 ---
@@ -66,19 +69,20 @@ Se entrenó un modelo YOLOv8 con un dataset sintético generado con `scripts/gen
 
 | | |
 |---|---|
-| ![YOLO detectando Docker](evidence/brave_screenshot_localhost.png) | ![YOLO detectando Terraform](evidence/Captura_de_pantalla_20260526_173715.png) |
-
+| ![YOLO detectando Docker](evidence/brave_screenshot_localhost.png) | ![YOLO detectando Terraform](evidence/brave_screenshot_localhost1.png) |
+brave_screenshot_localhost
 ### Fase 2 — Chatbot con contexto de logos
 
 Un segundo contenedor corre el chatbot en el puerto 8001. Cada vez que el usuario escribe, el chatbot consulta `/detections` del detector para saber qué logos están en pantalla y los incluye como contexto en el prompt enviado a la API de Groq (LLaMA 3.1). El asistente responde en texto y tiene opción de voz.
 
-![YOLO detectando Kubernetes con chatbot respondiendo](evidence/Captura_de_pantalla_20260525_214310.png)
+![YOLO detectando Kubernetes con chatbot respondiendo](evidence/contexto1.png)
 
 ### Fase 3 — Auditoría con Parrot OS
 
 Un contenedor basado en Parrot OS ejecuta scripts de `nmap` para escanear la red interna del proyecto. Genera un reporte HTML automático con los servicios descubiertos, puertos abiertos y verificación HTTP de los endpoints.
 
-![Reporte de auditoría Parrot OS](evidence/Captura_de_pantalla_20260529_212616.png)
+![Reporte de auditoría Parrot OS](evidence/Reporte1.png)
+![Reporte de auditoría Parrot OS HTML](evidence/Reporte2.png)
 
 ### Fase 4 — Kubernetes + Agones + SuperTuxKart
 
@@ -86,25 +90,25 @@ Se instaló Minikube con driver Docker, se desplegó Agones 1.44.0 vía Helm y s
 
 | | |
 |---|---|
-| ![3 servidores Ready](evidence/Captura_de_pantalla_20260529_215740.png) | ![Lobby con 3 jugadores](evidence/Captura_de_pantalla_20260529_230638.png) |
+| ![3 servidores Ready](evidence/Jugadores1.png) | ![Lobby con 3 jugadores](evidence/Jugadores2.png) |
 
-![Carrera con 3 jugadores en pista](evidence/Captura_de_pantalla_20260529_230749.png)
+![Carrera con 3 jugadores en pista](evidence/Jugadores3.png)
 
 ### Fase 5 — Topología de red con GNS3 + Cisco c3660
 
 Se crearon 3 bridges Linux (`br-vlan10`, `br-vlan20`, `br-vlan30`) y se conectaron como nodos Cloud en GNS3. El router Cisco c3660 (Dynamips) enruta entre las 3 VLANs con ACLs extendidas y política QoS CBWFQ que prioriza el stream de YOLO (AF41) sobre el tráfico de juego (AF21) y monitoreo (CS2). El DHCP fue provisto por `dnsmasq`.
 
-![Topología GNS3](evidence/Captura_de_pantalla_20260529_220655.png)
+![Topología GNS3](evidence/Topologia.png)
 
-![Consola c3660 — interfaces up](evidence/Captura_de_pantalla_20260529_215813.png)
+![Consola c3660 — interfaces up](evidence/router-interfaces.png)
 
-![Ping al router y rutas VLANs verificadas](evidence/Captura_de_pantalla_20260529_221847.png)
+![Ping al router y rutas VLANs verificadas](evidence/ping-vlan.png)
 
 **Capturas Wireshark por VLAN:**
 
 | VLAN VIDEO (gns3tap0-0) | VLAN DATOS (gns3tap1-0) | VLAN MGMT (gns3tap2-0) |
 |---|---|---|
-| ![Wireshark VLAN VIDEO](evidence/Captura_de_pantalla_20260529_222125.png) | ![Wireshark VLAN DATOS](evidence/Captura_de_pantalla_20260529_223128.png) | ![Wireshark VLAN MGMT](evidence/Captura_de_pantalla_20260529_223941.png) |
+| ![Wireshark VLAN VIDEO](evidence/vlan-video.png) | ![Wireshark VLAN DATOS](evidence/vlan-datos.png) | ![Wireshark VLAN MGMT](evidence/vlan-mgmt.png) |
 
 Las capturas muestran anuncios CDP del `ROUTER-PROYECTO` en cada interfaz (`FastEthernet0/0`, `FastEthernet1/0`, `FastEthernet2/0`) y tráfico ARP de los contenedores en la VLAN VIDEO.
 
@@ -112,11 +116,13 @@ Las capturas muestran anuncios CDP del `ROUTER-PROYECTO` en cada interfaz (`Fast
 
 Se levantó un stack de monitoreo en Docker con Prometheus recolectando métricas de cAdvisor (contenedores), Node Exporter (host Arch Linux) y un exportador personalizado `yolo-exporter` que convierte las detecciones de logos en métricas Prometheus. Grafana muestra dashboards en tiempo real con refresh de 10s.
 
-![Prometheus targets UP](evidence/Captura_de_pantalla_20260529_224712.png)
+![Prometheus targets UP](evidence/target.png)
 
-![Grafana dashboard — YOLO + CPU + RAM + Red](evidence/Captura_de_pantalla_20260529_224755.png)
+![Grafana dashboard — YOLO + CPU + RAM + Red](evidence/dashboard1.png)
 
-![cAdvisor — contenedores Docker](evidence/Captura_de_pantalla_20260529_225233.png)
+![Grafana dashboard — YOLO](evidence/dashboard.png)
+
+![cAdvisor — contenedores Docker](evidence/cadvisor.png)
 
 ---
 
